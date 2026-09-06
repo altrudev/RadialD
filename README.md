@@ -93,4 +93,4 @@ The public project intentionally exposes a small execution contract rather than 
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
