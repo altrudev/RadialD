@@ -8,12 +8,12 @@ version = "0.1.0"
 description = "Authority-safe concurrent compute deduplication for deterministic work"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Apache-2.0"}
+license = {text = "MIT"}
 authors = [{name = "AltruDev"}]
 keywords = ["concurrency", "deduplication", "singleflight", "compute", "scheduler"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
 
