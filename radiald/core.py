@@ -3,11 +3,79 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import math
 import threading
 from concurrent.futures import Future
 from typing import Callable, Generic, Hashable, TypeVar
 
 T = TypeVar("T")
+
+
+def _canonical_value(value: object) -> object:
+    """Return a type-preserving deterministic representation.
+
+    RadialD uses fingerprints in execution lineage. Unsupported Python objects
+    fail closed rather than falling back to repr(), because repr may omit hidden
+    state or include process-specific addresses.
+    """
+    if value is None:
+        return ["none"]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError("RadialD cannot fingerprint non-finite floats")
+        return ["float", value.hex()]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, list):
+        return ["list", [_canonical_value(item) for item in value]]
+    if isinstance(value, tuple):
+        return ["tuple", [_canonical_value(item) for item in value]]
+    if isinstance(value, dict):
+        items = [
+            [_canonical_value(key), _canonical_value(item)]
+            for key, item in value.items()
+        ]
+        items.sort(
+            key=lambda pair: json.dumps(
+                pair[0], sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        )
+        return ["dict", items]
+    if isinstance(value, set):
+        items = [_canonical_value(item) for item in value]
+        items.sort(
+            key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        )
+        return ["set", items]
+    if isinstance(value, frozenset):
+        items = [_canonical_value(item) for item in value]
+        items.sort(
+            key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        )
+        return ["frozenset", items]
+    raise TypeError(
+        f"RadialD deterministic fingerprint requires a supported built-in value, got {type(value).__name__}"
+    )
+
+
+def stable_digest(value: object) -> str:
+    encoded = json.dumps(
+        _canonical_value(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -50,13 +118,7 @@ class RadialExecutor:
 
     @staticmethod
     def _digest(value: object) -> str:
-        try:
-            encoded = json.dumps(
-                value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode("utf-8")
-        except (TypeError, ValueError):
-            encoded = repr(value).encode("utf-8")
-        return sha256(encoded).hexdigest()
+        return stable_digest(value)
 
     def run(
         self,
@@ -71,7 +133,8 @@ class RadialExecutor:
         Callers are responsible for choosing a `work_key` that completely
         identifies deterministic inputs. Different authorities never share.
         """
-        composite = (authority, work_key)
+        verifier_identity = None if verifier is None else id(verifier)
+        composite = (authority, work_key, verifier_identity)
         owner = False
 
         with self._lock:
