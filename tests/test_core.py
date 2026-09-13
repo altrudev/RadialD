@@ -175,5 +175,17 @@ class RadialExecutorTests(unittest.TestCase):
             stable_digest(Hidden(1))
 
 
+    def test_cyclic_container_fingerprint_fails_closed(self):
+        value = []
+        value.append(value)
+        with self.assertRaises(TypeError):
+            stable_digest(value)
+
+    def test_binary_fingerprint_is_stable_and_type_distinct(self):
+        self.assertEqual(stable_digest(b"abc"), stable_digest(b"abc"))
+        self.assertNotEqual(stable_digest(b"abc"), stable_digest("abc"))
+
+
+
 if __name__ == "__main__":
     unittest.main()
