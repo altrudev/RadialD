@@ -164,6 +164,7 @@ class RadialGraphTests(unittest.TestCase):
                 "reject:v1",
                 lambda value: (time.sleep(0.04), value + 1)[1],
                 verifier=lambda value: value < 0,
+                verifier_key="negative-v1",
             )
         ]
 
@@ -195,6 +196,78 @@ class RadialGraphTests(unittest.TestCase):
         self.assertEqual(result.value, isolated)
         self.assertEqual(result.value, {"answer": 25})
         self.assertEqual(len(result.trace), 3)
+
+
+    def test_type_distinct_initial_values_do_not_share_prefix(self):
+        graph = RadialGraphExecutor()
+        barrier = threading.Barrier(2)
+        calls = 0
+        lock = threading.Lock()
+
+        def transform(value):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.04)
+            return type(value).__name__
+
+        stages = [Stage("type:v1", transform)]
+
+        def job(value):
+            barrier.wait()
+            return graph.run(authority="A", initial=value, stages=stages)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(job, [[1, 2], (1, 2)]))
+
+        self.assertEqual(calls, 2)
+        self.assertCountEqual([r.value for r in results], ["list", "tuple"])
+        self.assertEqual(graph.stats().physical_executions, 2)
+
+    def test_different_stage_verifiers_fracture_even_with_same_stage_key(self):
+        graph = RadialGraphExecutor()
+        barrier = threading.Barrier(2)
+        calls = 0
+        lock = threading.Lock()
+
+        def transform(value):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.04)
+            return value + 1
+
+        left = [Stage("step:v1", transform, verifier=lambda value: value == 2, verifier_key="eq2")]
+        right = [Stage("step:v1", transform, verifier=lambda value: value == 3, verifier_key="eq3")]
+
+        def job(stages):
+            barrier.wait()
+            return graph.run(authority="A", initial=1, stages=stages)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            good = pool.submit(job, left)
+            bad = pool.submit(job, right)
+            self.assertEqual(good.result().value, 2)
+            with self.assertRaises(ValueError):
+                bad.result()
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(graph.stats().physical_executions, 2)
+
+
+    def test_compact_trace_preserves_lineage_and_shared_count(self):
+        graph = RadialGraphExecutor()
+        result = graph.run(
+            authority="A",
+            initial=1,
+            stages=[Stage("inc:v1", lambda value: value + 1)],
+            record_trace=False,
+        )
+        self.assertEqual(result.value, 2)
+        self.assertEqual(result.trace, ())
+        self.assertEqual(result.shared_nodes, 0)
+        self.assertTrue(result.lineage_digest)
+
 
 
 if __name__ == "__main__":
