@@ -33,6 +33,7 @@ class Stage(Generic[T]):
 @dataclass(frozen=True)
 class NodeTrace:
     stage_key: Hashable
+    verifier_key: Hashable | None
     input_digest: str
     output_digest: str
     lineage_digest: str
@@ -76,7 +77,14 @@ class RadialGraphExecutor:
         trace: list[NodeTrace] = []
 
         for stage in stages:
-            node_key = ("radiald-node-v1", lineage, stage.key)
+            if stage.verifier is not None and stage.verifier_key is None:
+                raise ValueError("graph stages with a verifier require verifier_key")
+            verifier_contract = (
+                ("none",)
+                if stage.verifier is None
+                else ("key", stage.verifier_key)
+            )
+            node_key = ("radiald-node-v1", lineage, stage.key, verifier_contract)
             node_input = value
             node_input_digest = input_digest
 
@@ -91,11 +99,16 @@ class RadialGraphExecutor:
             value = result.value
             input_digest = result.digest
             lineage = _lineage_digest(
-                "radiald-lineage-v1", lineage, stage.key, result.digest
+                "radiald-lineage-v1",
+                lineage,
+                stage.key,
+                verifier_contract,
+                result.digest,
             )
             trace.append(
                 NodeTrace(
                     stage_key=stage.key,
+                    verifier_key=stage.verifier_key,
                     input_digest=node_input_digest,
                     output_digest=result.digest,
                     lineage_digest=lineage,
