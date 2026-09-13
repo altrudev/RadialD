@@ -43,4 +43,4 @@ __all__ = [
     "stable_digest",
     "transition_closure_signals",
 ]
-__version__ = "0.4.0"
+__version__ = "0.3.0"
