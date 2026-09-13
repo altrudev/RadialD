@@ -23,6 +23,9 @@ class WorkStats:
     physical_executions: int
     shared_requests: int
     refused_cross_authority: int
+    join_attempts: int
+    timed_out_joins: int
+    rejected_shared_outputs: int
 
     @property
     def work_avoided_ratio(self) -> float:
@@ -47,6 +50,9 @@ class RadialExecutor:
         self._physical_executions = 0
         self._shared_requests = 0
         self._refused_cross_authority = 0
+        self._join_attempts = 0
+        self._timed_out_joins = 0
+        self._rejected_shared_outputs = 0
 
     @staticmethod
     def _digest(value: object) -> str:
@@ -79,7 +85,7 @@ class RadialExecutor:
             self._logical_requests += 1
             existing = self._inflight.get(composite)
             if existing is not None:
-                self._shared_requests += 1
+                self._join_attempts += 1
                 future = existing
             else:
                 authorities = self._active_key_authorities.setdefault(work_id, set())
@@ -95,10 +101,16 @@ class RadialExecutor:
             try:
                 result = future.result(timeout=join_timeout)
             except FutureTimeoutError as exc:
+                with self._lock:
+                    self._timed_out_joins += 1
                 raise TimeoutError("timed out waiting for shared RadialD work") from exc
             value = result.value  # type: ignore[assignment]
             if verifier is not None and not verifier(value):  # type: ignore[arg-type]
+                with self._lock:
+                    self._rejected_shared_outputs += 1
                 raise ValueError("RadialD verifier rejected shared output")
+            with self._lock:
+                self._shared_requests += 1
             return WorkResult(value=value, digest=result.digest, shared=True)  # type: ignore[arg-type]
 
         try:
@@ -129,4 +141,7 @@ class RadialExecutor:
                 physical_executions=self._physical_executions,
                 shared_requests=self._shared_requests,
                 refused_cross_authority=self._refused_cross_authority,
+                join_attempts=self._join_attempts,
+                timed_out_joins=self._timed_out_joins,
+                rejected_shared_outputs=self._rejected_shared_outputs,
             )
