@@ -1,6 +1,6 @@
 # DDC-governed public release gates
 
-This repository publishes **behavioral release gates**, not private DDC decision methodology.
+This repository publishes behavioral release gates, not private DDC decision methodology.
 
 A RadialD release is acceptable only when the public implementation preserves these invariants.
 
@@ -10,44 +10,62 @@ For declared deterministic stages, graph execution must produce the same logical
 
 ## G2 — Authority isolation
 
-Work from different authority domains must never coalesce, even when stage keys and visible inputs are identical.
+Work from different authority domains must never coalesce when their type-preserving authority identities differ.
 
 ## G3 — Prefix-only sharing
 
-Concurrent graph nodes may share only when initial state, complete prefix lineage, stage key, and authority agree.
+Concurrent graph nodes may share only when initial-state fingerprint, complete prefix lineage, stage identity, authority identity, and in-flight timing agree.
 
 ## G4 — Sticky fracture
 
-After two pipelines diverge, they remain distinct in v0.2. Equal later values are insufficient to erase lineage divergence.
+After two pipelines diverge, equal later values are insufficient to erase lineage divergence.
 
 ## G5 — Conservative ambiguity
 
-If the caller cannot provide a complete deterministic stage key, that stage is not safe for shared execution. The correct fallback is isolated execution with a distinct key.
+Values used for authority, work identity, lineage, or output evidence must have an unambiguous supported canonical representation. Unsupported representations fail closed.
 
-## G6 — Verifier propagation
+## G6 — Verifier propagation and local enforcement
 
-A node verifier rejection or computation exception must propagate to every caller joined to that in-flight node.
+Computation errors and owner-side verifier rejection propagate to every joined caller. A joiner-supplied verifier must also be evaluated before that caller receives shared output.
 
 ## G7 — No hidden persistence
 
-Completed node results are removed from the in-flight table. RadialD v0.2 is not a persistent cache.
+Completed node results are removed from the in-flight table. RadialD is not a persistent cache.
 
 ## G8 — Evidence surface
 
 Graph results expose input, output, and lineage fingerprints for every stage plus whether the node was shared.
 
+## G9 — Representation distinction
+
+Semantically or operationally distinct built-in representations must not collapse merely because Python equality or JSON coercion treats them as equivalent.
+
+Regression examples include:
+
+- `True` versus `1`;
+- list versus tuple;
+- integer dictionary keys versus string dictionary keys.
+
+## G10 — Bounded join availability
+
+A caller may bound its wait on already-running shared work. A timeout must fail that joiner without corrupting or cancelling the owner computation.
+
+## G11 — Weak-link evidence honesty
+
+Weak-link analysis must rank explicit caller-supplied evidence. It must not claim to have discovered, proven, or closed a condition for which no evidence was supplied.
+
+Closed links contribute zero residual risk. The report identifies the highest residual-risk link as the current bound.
+
 ## Current validation
 
-The v0.2 graph suite covers:
+The v0.3 suite covers the original v0.2 graph and concurrency gates plus:
 
-- identical concurrent pipelines;
-- shared prefix with divergent suffixes;
-- non-rejoin after divergence even when values become equal;
-- cross-authority refusal;
-- different initial-state refusal;
-- verifier-failure propagation;
-- isolated-output equivalence.
+- authority type-confusion regression;
+- representation-distinct initial states;
+- dictionary-key representation distinction;
+- joiner-verifier bypass regression;
+- bounded shared-work waits;
+- fail-closed unsupported values;
+- weak-link bounding, closure, and containment behavior.
 
-A separate randomized harness was also run over 500 deterministic arithmetic pipelines during v0.2 development and matched isolated execution in all 500 trials.
-
-That development harness is evidence for the release process, not a proof that arbitrary user-supplied programs are deterministic.
+The implementation remains bounded to declared deterministic work and explicit assurance signals.

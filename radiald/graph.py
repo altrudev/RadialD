@@ -1,23 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
-import json
 from typing import Callable, Generic, Hashable, Iterable, TypeVar
 
+from .canonical import stable_digest, typed_identity
 from .core import RadialExecutor, WorkResult, WorkStats
 
 T = TypeVar("T")
 
 
 def _stable_digest(value: object) -> str:
-    try:
-        encoded = json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
-    except (TypeError, ValueError):
-        encoded = repr(value).encode("utf-8")
-    return sha256(encoded).hexdigest()
+    return stable_digest(value)
 
 
 def _lineage_digest(*parts: object) -> str:
@@ -28,8 +21,9 @@ def _lineage_digest(*parts: object) -> str:
 class Stage(Generic[T]):
     """One deterministic graph stage.
 
-    `key` is a public execution contract: callers MUST change it whenever the
-    transform implementation, configuration, hidden inputs, or semantics change.
+    The key is a public execution contract: callers MUST change it whenever the
+    transform implementation, configuration, hidden inputs, verifier semantics,
+    or other execution semantics change.
     """
 
     key: Hashable
@@ -61,10 +55,9 @@ class GraphResult(Generic[T]):
 class RadialGraphExecutor:
     """Share only identical in-flight deterministic prefixes.
 
-    Node identity includes authority (enforced by RadialExecutor), the complete
-    prefix lineage, and the stage key. Once two pipelines diverge, their lineage
-    differs and they cannot silently rejoin later, even if an intermediate value
-    happens to hash identically.
+    Node identity includes authority (enforced by RadialExecutor), complete
+    prefix lineage, and a type-preserving stage identity. Once two pipelines
+    diverge, their lineage differs and they cannot silently rejoin later.
     """
 
     def __init__(self, executor: RadialExecutor | None = None) -> None:
@@ -76,14 +69,16 @@ class RadialGraphExecutor:
         authority: Hashable,
         initial: object,
         stages: Iterable[Stage[object]],
+        join_timeout: float | None = None,
     ) -> GraphResult[object]:
         value: object = initial
         input_digest = _stable_digest(value)
-        lineage = _lineage_digest("radiald-root-v1", input_digest)
+        lineage = _lineage_digest("radiald-root-v2", input_digest)
         trace: list[NodeTrace] = []
 
         for stage in stages:
-            node_key = ("radiald-node-v1", lineage, stage.key)
+            stage_id = typed_identity(stage.key)
+            node_key = ("radiald-node-v2", lineage, stage_id)
             node_input = value
             node_input_digest = input_digest
 
@@ -92,12 +87,13 @@ class RadialGraphExecutor:
                 work_key=node_key,
                 compute=lambda s=stage, v=node_input: s.transform(v),
                 verifier=stage.verifier,
+                join_timeout=join_timeout,
             )
 
             value = result.value
             input_digest = result.digest
             lineage = _lineage_digest(
-                "radiald-lineage-v1", lineage, stage.key, result.digest
+                "radiald-lineage-v2", lineage, stage_id, result.digest
             )
             trace.append(
                 NodeTrace(

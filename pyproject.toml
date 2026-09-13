@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "radiald"
-version = "0.2.0"
-description = "Authority-safe concurrent compute deduplication with lineage-safe prefix sharing"
+version = "0.3.0"
+description = "Authority-safe concurrent compute sharing with lineage and weak-link analysis"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "AltruDev"}]
-keywords = ["concurrency", "deduplication", "singleflight", "compute", "scheduler", "dag", "pipeline"]
+keywords = ["concurrency", "deduplication", "singleflight", "compute", "scheduler", "dag", "pipeline", "assurance"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
