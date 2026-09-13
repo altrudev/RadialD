@@ -27,6 +27,7 @@ class Stage(Generic[T]):
     key: Hashable
     transform: Callable[[object], T]
     verifier: Callable[[T], bool] | None = None
+    verifier_key: Hashable | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ class RadialGraphExecutor:
                 work_key=node_key,
                 compute=lambda s=stage, v=node_input: s.transform(v),
                 verifier=stage.verifier,
+                verifier_key=stage.verifier_key,
             )
 
             value = result.value
