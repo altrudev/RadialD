@@ -127,6 +127,7 @@ class RadialExecutor:
         work_key: Hashable,
         compute: Callable[[], T],
         verifier: Callable[[T], bool] | None = None,
+        verifier_key: Hashable | None = None,
     ) -> WorkResult[T]:
         """Execute or join one deterministic unit of work.
 
