@@ -1,15 +1,16 @@
 # RadialD
 
-**Stop computing the same deterministic work twice — and stop recomputing identical prefixes across concurrent pipelines.**
+**Share deterministic concurrent work without erasing authority, representation, or lineage — and identify the weak link that bounds safe autonomy.**
 
-RadialD is a small, local-first execution primitive for authority-safe concurrent work sharing.
+RadialD is a small, local-first execution and assurance primitive.
 
-- v0.1 coalesces identical in-flight work.
-- v0.2 adds **lineage-safe prefix sharing**: concurrent pipelines can share an identical prefix and fracture automatically at the first divergence.
+- v0.1: identical in-flight work coalescing.
+- v0.2: lineage-safe shared-prefix execution.
+- v0.3: type-preserving canonical identity, joiner-side verifier enforcement, bounded shared waits, and first-class weak-link analysis.
 
-RadialD is **not a persistent cache** and does not guess whether arbitrary programs are equivalent.
+RadialD is **not a persistent cache**, sandbox, policy engine, or proof that arbitrary programs are deterministic.
 
-## The v0.2 idea
+## Execution model
 
 Two concurrent pipelines:
 
@@ -18,30 +19,79 @@ A -> B -> X
 A -> B -> Y
 ```
 
-can execute as:
+may execute as:
 
 ```text
 A -> B -+-> X
         +-> Y
 ```
 
-`A` and `B` are physically executed once when their authority, initial state, stage identity, and prefix lineage are identical. `X` and `Y` fracture because their stage keys differ.
+A node is eligible to share only when authority, initial-state representation,
+complete prefix lineage, stage identity, and in-flight timing agree.
 
-Once a lineage fractures, v0.2 does **not** silently rejoin it later merely because two branches happen to produce the same value. Provenance remains part of node identity.
+Once a lineage fractures, it does not silently rejoin merely because later
+values happen to be equal.
 
-## Safety rules
+## v0.3 security hardening
 
-RadialD shares a graph node only when all public conditions agree:
+v0.3 closes representation-equivalence gaps present in earlier releases.
 
-1. `authority` is identical;
-2. initial-state fingerprint is identical;
-3. complete prefix lineage is identical;
-4. stage `key` is identical;
-5. the node is concurrently in flight.
+Identity and lineage fingerprints are now generated from a deterministic,
+type-preserving canonical representation. For example, these are distinct:
 
-The caller owns the stage-key contract: **change the key whenever transform code, configuration, hidden inputs, or semantics change.**
+- `True` and `1`;
+- `[1]` and `(1,)`;
+- `{1: "x"}` and `{"1": "x"}`.
 
-Different authority domains never share work.
+Unsupported custom objects and ambiguous representations fail closed instead
+of falling back to `repr()`.
+
+A caller that joins existing work also runs its own verifier before receiving
+the shared output. `join_timeout` can bound how long a joiner waits for the
+owner computation.
+
+These changes are intentionally conservative and can reject values that v0.2
+would fingerprint via `repr()`.
+
+## Weak-link analysis
+
+Weak-link analysis ranks **explicit evidence supplied by the caller**. It does
+not infer safety from arbitrary program behavior.
+
+```python
+from radiald import (
+    WeakLinkAnalyzer,
+    WeakLinkSignal,
+    WeakLinkStatus,
+)
+
+report = WeakLinkAnalyzer().analyze([
+    WeakLinkSignal(
+        "representation_equivalence",
+        severity=0.95,
+        confidence=1.0,
+        status=WeakLinkStatus.CLOSED,
+    ),
+    WeakLinkSignal(
+        "external_state_freshness",
+        severity=0.90,
+        confidence=0.95,
+        status=WeakLinkStatus.UNRESOLVED,
+        propagation_depth=2,
+        reversible=False,
+    ),
+])
+
+print(report.bounding_link.name)
+print(report.system_assurance)
+print(report.maximum_safe_autonomy.value)
+```
+
+Statuses are `DETECTED`, `CONTAINED`, `CLOSED`, and `UNRESOLVED`.
+
+The report identifies the residual-risk bottleneck and maps it to a configurable
+autonomy ceiling. The numeric score is a bounded policy aid, not a proof of
+system safety.
 
 ## Quick start
 
@@ -49,33 +99,9 @@ Requires Python 3.10+ and no runtime dependencies.
 
 ```bash
 python -m pip install -e .
-radiald graph-demo
-```
-
-Expected graph-demo shape:
-
-```text
-RadialD v0.2 graph demo
-logical pipelines:      2
-logical node requests:  6
-physical executions:    4
-shared prefix:          A -> B
-fracture:               X / Y
-left result:            ABX
-right result:           ABY
-gate:                   PASS
-```
-
-The original single-node demo remains available:
-
-```bash
-radiald demo --jobs 32
-```
-
-Run the test suite:
-
-```bash
 python -m unittest discover -s tests -v
+radiald graph-demo
+radiald weaklink-demo
 ```
 
 ## Graph API
@@ -94,18 +120,13 @@ preview = graph.run(
     authority="tenant-17",
     initial=source_bytes,
     stages=prefix + [Stage("resize:256:v1", resize_256)],
-)
-
-thumbnail = graph.run(
-    authority="tenant-17",
-    initial=source_bytes,
-    stages=prefix + [Stage("resize:64:v1", resize_64)],
+    join_timeout=1.0,
 )
 ```
 
-When these pipelines overlap in time, `decode` and `normalize` are eligible to share. The resize stages fracture.
-
-Every returned graph result includes a node trace with input, output, and lineage fingerprints plus whether each node was shared.
+The stage key is part of the execution contract. Change it whenever transform
+code, configuration, hidden inputs, verifier semantics, resource identity, or
+other execution semantics change.
 
 ## Single-node API
 
@@ -115,40 +136,29 @@ from radiald import RadialExecutor
 engine = RadialExecutor()
 result = engine.run(
     authority="tenant-17",
-    work_key=("thumbnail", source_sha256, 256),
+    work_key=("thumbnail", "sha256:abc", 256),
     compute=lambda: make_thumbnail(source, 256),
     verifier=lambda output: len(output) > 0,
+    join_timeout=1.0,
 )
 ```
 
 ## DDC-governed release gates
 
-RadialD is developed under bounded behavioral gates derived from DDC work, while private DDC decision methodology is not published in this repository.
-
 Public release invariants are documented in [DDC_GATES.md](DDC_GATES.md).
+Security assumptions and trust boundaries are documented in
+[SECURITY.md](SECURITY.md).
 
-The v0.2 gate includes:
+## What v0.3 does not claim
 
-- shared prefixes execute once under concurrency;
-- divergent stages fracture;
-- divergent lineages cannot silently rejoin;
-- authority boundaries prevent sharing at every node;
-- different initial states prevent sharing;
-- verifier rejection reaches all joiners;
-- graph output matches isolated execution;
-- completed results are not retained as a cache.
+RadialD does not automatically prove determinism, infer complete stage keys,
+deduplicate across processes or machines, sandbox untrusted code, establish
+freshness of external state, or guarantee performance improvements when work
+does not overlap.
 
-## What v0.2 does not claim
-
-RadialD does not automatically prove arbitrary programs are deterministic, infer complete stage keys, deduplicate work across processes or machines, sandbox user code, or promise a speedup when workloads do not overlap.
-
-It currently shares **declared deterministic work**, not arbitrary shell commands.
-
-## Why lineage is sticky
-
-A value fingerprint alone is not enough to establish safe equivalence. Two different computation paths can accidentally or intentionally produce the same value while carrying different provenance or authority implications.
-
-RadialD therefore includes the complete prefix lineage in node identity. In v0.2, once two graphs fracture, later equal values do not make them eligible to rejoin.
+Weak-link analysis does not discover evidence by itself. Callers must supply
+signals grounded in their own observations, policy checks, receipts, state
+validation, or other assurance mechanisms.
 
 ## License
 
