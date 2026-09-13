@@ -29,6 +29,7 @@ def _demo(jobs: int, delay: float) -> int:
             work_key="same-deterministic-input",
             compute=compute,
             verifier=lambda value: value.get("answer") == 42,
+            verifier_key="answer-42-v1",
         ).digest
 
     start = time.perf_counter()
@@ -37,7 +38,7 @@ def _demo(jobs: int, delay: float) -> int:
     elapsed = time.perf_counter() - start
     stats = engine.stats()
 
-    print("RadialD v0.2 single-node demo")
+    print("RadialD v0.3 single-node demo")
     print(f"logical requests:       {stats.logical_requests}")
     print(f"physical executions:    {stats.physical_executions}")
     print(f"shared requests:        {stats.shared_requests}")
@@ -83,7 +84,7 @@ def _graph_demo(delay: float) -> int:
         and stats.logical_requests == 6
     )
 
-    print("RadialD v0.2 graph demo")
+    print("RadialD v0.3 graph demo")
     print("logical pipelines:      2")
     print("logical node requests:  6")
     print(f"physical executions:    {stats.physical_executions}")
