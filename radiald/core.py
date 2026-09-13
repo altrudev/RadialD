@@ -134,8 +134,16 @@ class RadialExecutor:
         Callers are responsible for choosing a `work_key` that completely
         identifies deterministic inputs. Different authorities never share.
         """
-        verifier_identity = None if verifier is None else id(verifier)
+        if verifier is None and verifier_key is not None:
+            raise ValueError("verifier_key requires verifier")
+        if verifier is None:
+            verifier_identity = ("none",)
+        elif verifier_key is not None:
+            verifier_identity = ("key", verifier_key)
+        else:
+            verifier_identity = ("callable-id", id(verifier))
         composite = (authority, work_key, verifier_identity)
+        active_key = (work_key, verifier_identity)
         owner = False
 
         with self._lock:
@@ -145,7 +153,7 @@ class RadialExecutor:
                 self._shared_requests += 1
                 future = existing
             else:
-                authorities = self._active_key_authorities.setdefault(work_key, set())
+                authorities = self._active_key_authorities.setdefault(active_key, set())
                 if authorities and authority not in authorities:
                     self._refused_cross_authority += 1
                 authorities.add(authority)
@@ -173,11 +181,11 @@ class RadialExecutor:
         finally:
             with self._lock:
                 self._inflight.pop(composite, None)
-                authorities = self._active_key_authorities.get(work_key)
+                authorities = self._active_key_authorities.get(active_key)
                 if authorities is not None:
                     authorities.discard(authority)
                     if not authorities:
-                        self._active_key_authorities.pop(work_key, None)
+                        self._active_key_authorities.pop(active_key, None)
 
     def stats(self) -> WorkStats:
         with self._lock:
