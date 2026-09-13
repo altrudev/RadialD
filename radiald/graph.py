@@ -46,10 +46,11 @@ class GraphResult(Generic[T]):
     digest: str
     lineage_digest: str
     trace: tuple[NodeTrace, ...]
+    shared_node_count: int
 
     @property
     def shared_nodes(self) -> int:
-        return sum(node.shared for node in self.trace)
+        return self.shared_node_count
 
 
 class RadialGraphExecutor:
@@ -78,6 +79,7 @@ class RadialGraphExecutor:
         input_digest = _stable_digest(value)
         lineage = _lineage_digest("radiald-root-v1", input_digest)
         trace: list[NodeTrace] | None = [] if record_trace else None
+        shared_node_count = 0
 
         for stage in stages:
             if stage.verifier is not None and stage.verifier_key is None:
@@ -101,6 +103,7 @@ class RadialGraphExecutor:
 
             value = result.value
             input_digest = result.digest
+            shared_node_count += int(result.shared)
             lineage = _lineage_digest(
                 "radiald-lineage-v1",
                 lineage,
@@ -125,6 +128,7 @@ class RadialGraphExecutor:
             digest=input_digest,
             lineage_digest=lineage,
             trace=tuple(trace) if trace is not None else (),
+            shared_node_count=shared_node_count,
         )
 
     def stats(self) -> WorkStats:
