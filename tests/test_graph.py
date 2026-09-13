@@ -197,5 +197,62 @@ class RadialGraphTests(unittest.TestCase):
         self.assertEqual(len(result.trace), 3)
 
 
+    def test_type_distinct_initial_values_do_not_share_prefix(self):
+        graph = RadialGraphExecutor()
+        barrier = threading.Barrier(2)
+        calls = 0
+        lock = threading.Lock()
+
+        def transform(value):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.04)
+            return type(value).__name__
+
+        stages = [Stage("type:v1", transform)]
+
+        def job(value):
+            barrier.wait()
+            return graph.run(authority="A", initial=value, stages=stages)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(job, [[1, 2], (1, 2)]))
+
+        self.assertEqual(calls, 2)
+        self.assertCountEqual([r.value for r in results], ["list", "tuple"])
+        self.assertEqual(graph.stats().physical_executions, 2)
+
+    def test_different_stage_verifiers_fracture_even_with_same_stage_key(self):
+        graph = RadialGraphExecutor()
+        barrier = threading.Barrier(2)
+        calls = 0
+        lock = threading.Lock()
+
+        def transform(value):
+            nonlocal calls
+            with lock:
+                calls += 1
+            time.sleep(0.04)
+            return value + 1
+
+        left = [Stage("step:v1", transform, verifier=lambda value: value == 2, verifier_key="eq2")]
+        right = [Stage("step:v1", transform, verifier=lambda value: value == 3, verifier_key="eq3")]
+
+        def job(stages):
+            barrier.wait()
+            return graph.run(authority="A", initial=1, stages=stages)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            good = pool.submit(job, left)
+            bad = pool.submit(job, right)
+            self.assertEqual(good.result().value, 2)
+            with self.assertRaises(ValueError):
+                bad.result()
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(graph.stats().physical_executions, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
