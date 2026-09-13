@@ -1,27 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
-import json
 from typing import Callable, Generic, Hashable, Iterable, TypeVar
 
-from .core import RadialExecutor, WorkResult, WorkStats
+from .core import RadialExecutor, WorkResult, WorkStats, stable_digest
 
 T = TypeVar("T")
 
 
 def _stable_digest(value: object) -> str:
-    try:
-        encoded = json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
-    except (TypeError, ValueError):
-        encoded = repr(value).encode("utf-8")
-    return sha256(encoded).hexdigest()
+    return stable_digest(value)
 
 
 def _lineage_digest(*parts: object) -> str:
-    return _stable_digest(parts)
+    return stable_digest(parts)
 
 
 @dataclass(frozen=True)
