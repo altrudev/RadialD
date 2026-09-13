@@ -16,7 +16,7 @@ def _lineage_digest(*parts: object) -> str:
     return stable_digest(parts)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Stage(Generic[T]):
     """One deterministic graph stage.
 
@@ -30,7 +30,7 @@ class Stage(Generic[T]):
     verifier_key: Hashable | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class NodeTrace:
     stage_key: Hashable
     verifier_key: Hashable | None
@@ -40,7 +40,7 @@ class NodeTrace:
     shared: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GraphResult(Generic[T]):
     value: T
     digest: str
@@ -61,6 +61,8 @@ class RadialGraphExecutor:
     happens to hash identically.
     """
 
+    __slots__ = ("_executor",)
+
     def __init__(self, executor: RadialExecutor | None = None) -> None:
         self._executor = executor or RadialExecutor()
 
@@ -70,11 +72,12 @@ class RadialGraphExecutor:
         authority: Hashable,
         initial: object,
         stages: Iterable[Stage[object]],
+        record_trace: bool = True,
     ) -> GraphResult[object]:
         value: object = initial
         input_digest = _stable_digest(value)
         lineage = _lineage_digest("radiald-root-v1", input_digest)
-        trace: list[NodeTrace] = []
+        trace: list[NodeTrace] | None = [] if record_trace else None
 
         for stage in stages:
             if stage.verifier is not None and stage.verifier_key is None:
@@ -105,22 +108,23 @@ class RadialGraphExecutor:
                 verifier_contract,
                 result.digest,
             )
-            trace.append(
-                NodeTrace(
-                    stage_key=stage.key,
-                    verifier_key=stage.verifier_key,
-                    input_digest=node_input_digest,
-                    output_digest=result.digest,
-                    lineage_digest=lineage,
-                    shared=result.shared,
+            if trace is not None:
+                trace.append(
+                    NodeTrace(
+                        stage_key=stage.key,
+                        verifier_key=stage.verifier_key,
+                        input_digest=node_input_digest,
+                        output_digest=result.digest,
+                        lineage_digest=lineage,
+                        shared=result.shared,
+                    )
                 )
-            )
 
         return GraphResult(
             value=value,
             digest=input_digest,
             lineage_digest=lineage,
-            trace=tuple(trace),
+            trace=tuple(trace) if trace is not None else (),
         )
 
     def stats(self) -> WorkStats:
