@@ -164,6 +164,7 @@ class RadialGraphTests(unittest.TestCase):
                 "reject:v1",
                 lambda value: (time.sleep(0.04), value + 1)[1],
                 verifier=lambda value: value < 0,
+                verifier_key="negative-v1",
             )
         ]
 
@@ -252,6 +253,21 @@ class RadialGraphTests(unittest.TestCase):
 
         self.assertEqual(calls, 2)
         self.assertEqual(graph.stats().physical_executions, 2)
+
+
+    def test_compact_trace_preserves_lineage_and_shared_count(self):
+        graph = RadialGraphExecutor()
+        result = graph.run(
+            authority="A",
+            initial=1,
+            stages=[Stage("inc:v1", lambda value: value + 1)],
+            record_trace=False,
+        )
+        self.assertEqual(result.value, 2)
+        self.assertEqual(result.trace, ())
+        self.assertEqual(result.shared_nodes, 0)
+        self.assertTrue(result.lineage_digest)
+
 
 
 if __name__ == "__main__":
