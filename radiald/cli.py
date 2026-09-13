@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .core import RadialExecutor
 from .graph import RadialGraphExecutor, Stage
+from .weaklink import WeakLinkAnalyzer, WeakLinkSignal, WeakLinkStatus
 
 
 def _demo(jobs: int, delay: float) -> int:
@@ -37,7 +38,7 @@ def _demo(jobs: int, delay: float) -> int:
     elapsed = time.perf_counter() - start
     stats = engine.stats()
 
-    print("RadialD v0.2 single-node demo")
+    print("RadialD v0.3 single-node demo")
     print(f"logical requests:       {stats.logical_requests}")
     print(f"physical executions:    {stats.physical_executions}")
     print(f"shared requests:        {stats.shared_requests}")
@@ -83,7 +84,7 @@ def _graph_demo(delay: float) -> int:
         and stats.logical_requests == 6
     )
 
-    print("RadialD v0.2 graph demo")
+    print("RadialD v0.3 graph demo")
     print("logical pipelines:      2")
     print("logical node requests:  6")
     print(f"physical executions:    {stats.physical_executions}")
@@ -96,10 +97,41 @@ def _graph_demo(delay: float) -> int:
     return 0 if passed else 1
 
 
+def _weaklink_demo() -> int:
+    report = WeakLinkAnalyzer().analyze([
+        WeakLinkSignal(
+            "representation_equivalence",
+            severity=0.95,
+            confidence=1.0,
+            status=WeakLinkStatus.CLOSED,
+            affects=("sharing_identity", "lineage"),
+        ),
+        WeakLinkSignal(
+            "external_state_freshness",
+            severity=0.90,
+            confidence=0.95,
+            status=WeakLinkStatus.UNRESOLVED,
+            affects=("world_model", "execution"),
+            propagation_depth=2,
+            reversible=False,
+            evidence="state freshness has not been re-established",
+        ),
+    ])
+
+    print("RadialD v0.3 weak-link demo")
+    print(f"system assurance:       {report.system_assurance:.3f}")
+    print(
+        "bounding link:          "
+        + (report.bounding_link.name if report.bounding_link else "none")
+    )
+    print(f"maximum safe autonomy:  {report.maximum_safe_autonomy.value}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="radiald",
-        description="Authority-safe concurrent compute deduplication.",
+        description="Authority-safe concurrent work sharing and weak-link analysis.",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -112,6 +144,11 @@ def main() -> int:
     )
     graph_demo.add_argument("--delay", type=float, default=0.05)
 
+    sub.add_parser(
+        "weaklink-demo",
+        help="run a bounded weak-link analysis example",
+    )
+
     args = parser.parse_args()
 
     if args.command in (None, "demo"):
@@ -122,6 +159,8 @@ def main() -> int:
         return _demo(jobs, delay)
     if args.command == "graph-demo":
         return _graph_demo(args.delay)
+    if args.command == "weaklink-demo":
+        return _weaklink_demo()
     return 2
 
 
