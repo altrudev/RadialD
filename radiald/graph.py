@@ -77,7 +77,7 @@ class RadialGraphExecutor:
     ) -> GraphResult[object]:
         value: object = initial
         input_digest = _stable_digest(value)
-        lineage = _lineage_digest("radiald-root-v1", input_digest)
+        lineage = _lineage_digest("radiald-root-v2", input_digest)
         trace: list[NodeTrace] | None = [] if record_trace else None
         shared_node_count = 0
 
@@ -89,7 +89,7 @@ class RadialGraphExecutor:
                 if stage.verifier is None
                 else ("key", stage.verifier_key)
             )
-            node_key = ("radiald-node-v1", lineage, stage.key, verifier_contract)
+            node_key = ("radiald-node-v2", lineage, stage.key, verifier_contract)
             node_input = value
             node_input_digest = input_digest
 
@@ -105,7 +105,7 @@ class RadialGraphExecutor:
             input_digest = result.digest
             shared_node_count += int(result.shared)
             lineage = _lineage_digest(
-                "radiald-lineage-v1",
+                "radiald-lineage-v2",
                 lineage,
                 stage.key,
                 verifier_contract,
