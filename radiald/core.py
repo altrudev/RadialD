@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
-import json
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from typing import Callable, Generic, Hashable, TypeVar
+
+from .canonical import stable_digest, typed_identity
 
 T = TypeVar("T")
 
@@ -34,15 +34,15 @@ class WorkStats:
 class RadialExecutor:
     """Coalesce identical deterministic work while preserving authority boundaries.
 
-    Sharing is allowed only when both `authority` and `work_key` are equal.
-    Results are shared only while work is in flight; RadialD is deliberately not
-    a persistent cache.
+    Sharing is allowed only when both authority and work key have identical,
+    type-preserving identities. Results are shared only while work is in flight;
+    RadialD is deliberately not a persistent cache.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._inflight: dict[tuple[Hashable, Hashable], Future[WorkResult[object]]] = {}
-        self._active_key_authorities: dict[Hashable, set[Hashable]] = {}
+        self._inflight: dict[tuple[str, str], Future[WorkResult[object]]] = {}
+        self._active_key_authorities: dict[str, set[str]] = {}
         self._logical_requests = 0
         self._physical_executions = 0
         self._shared_requests = 0
@@ -50,13 +50,7 @@ class RadialExecutor:
 
     @staticmethod
     def _digest(value: object) -> str:
-        try:
-            encoded = json.dumps(
-                value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode("utf-8")
-        except (TypeError, ValueError):
-            encoded = repr(value).encode("utf-8")
-        return sha256(encoded).hexdigest()
+        return stable_digest(value)
 
     def run(
         self,
@@ -65,13 +59,20 @@ class RadialExecutor:
         work_key: Hashable,
         compute: Callable[[], T],
         verifier: Callable[[T], bool] | None = None,
+        join_timeout: float | None = None,
     ) -> WorkResult[T]:
         """Execute or join one deterministic unit of work.
 
-        Callers are responsible for choosing a `work_key` that completely
-        identifies deterministic inputs. Different authorities never share.
+        The work key must completely identify deterministic inputs and semantics.
+        Different authorities never share. A joiner's verifier is always applied
+        locally before a shared value is released to that caller.
         """
-        composite = (authority, work_key)
+        if join_timeout is not None and join_timeout < 0:
+            raise ValueError("join_timeout must be non-negative or None")
+
+        authority_id = typed_identity(authority)
+        work_id = typed_identity(work_key)
+        composite = (authority_id, work_id)
         owner = False
 
         with self._lock:
@@ -81,18 +82,24 @@ class RadialExecutor:
                 self._shared_requests += 1
                 future = existing
             else:
-                authorities = self._active_key_authorities.setdefault(work_key, set())
-                if authorities and authority not in authorities:
+                authorities = self._active_key_authorities.setdefault(work_id, set())
+                if authorities and authority_id not in authorities:
                     self._refused_cross_authority += 1
-                authorities.add(authority)
+                authorities.add(authority_id)
                 future = Future()
                 self._inflight[composite] = future
                 self._physical_executions += 1
                 owner = True
 
         if not owner:
-            result = future.result()
-            return WorkResult(value=result.value, digest=result.digest, shared=True)  # type: ignore[arg-type]
+            try:
+                result = future.result(timeout=join_timeout)
+            except FutureTimeoutError as exc:
+                raise TimeoutError("timed out waiting for shared RadialD work") from exc
+            value = result.value  # type: ignore[assignment]
+            if verifier is not None and not verifier(value):  # type: ignore[arg-type]
+                raise ValueError("RadialD verifier rejected shared output")
+            return WorkResult(value=value, digest=result.digest, shared=True)  # type: ignore[arg-type]
 
         try:
             value = compute()
@@ -109,11 +116,11 @@ class RadialExecutor:
         finally:
             with self._lock:
                 self._inflight.pop(composite, None)
-                authorities = self._active_key_authorities.get(work_key)
+                authorities = self._active_key_authorities.get(work_id)
                 if authorities is not None:
-                    authorities.discard(authority)
+                    authorities.discard(authority_id)
                     if not authorities:
-                        self._active_key_authorities.pop(work_key, None)
+                        self._active_key_authorities.pop(work_id, None)
 
     def stats(self) -> WorkStats:
         with self._lock:
