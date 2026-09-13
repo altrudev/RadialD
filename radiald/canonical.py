@@ -12,32 +12,34 @@ class CanonicalizationError(TypeError):
 
 
 def _canonical(value: Any, stack: set[int]) -> object:
+    value_type = type(value)
+
     if value is None:
         return ["none"]
-    if isinstance(value, bool):
+    if value_type is bool:
         return ["bool", value]
-    if isinstance(value, int):
+    if value_type is int:
         return ["int", str(value)]
-    if isinstance(value, float):
+    if value_type is float:
         if not math.isfinite(value):
             raise CanonicalizationError("non-finite floats are not supported")
         return ["float", value.hex()]
-    if isinstance(value, str):
+    if value_type is str:
         return ["str", value]
-    if isinstance(value, bytes):
+    if value_type is bytes:
         return ["bytes", base64.b64encode(value).decode("ascii")]
 
-    if isinstance(value, (list, tuple, dict, set, frozenset)):
+    if value_type in (list, tuple, dict, set, frozenset):
         ident = id(value)
         if ident in stack:
             raise CanonicalizationError("cyclic values are not supported")
         stack.add(ident)
         try:
-            if isinstance(value, list):
+            if value_type is list:
                 return ["list", [_canonical(item, stack) for item in value]]
-            if isinstance(value, tuple):
+            if value_type is tuple:
                 return ["tuple", [_canonical(item, stack) for item in value]]
-            if isinstance(value, dict):
+            if value_type is dict:
                 entries = []
                 for key, item in value.items():
                     ckey = _canonical(key, stack)
@@ -48,7 +50,7 @@ def _canonical(value: Any, stack: set[int]) -> object:
                     entries.append((key_sort, ckey, cvalue))
                 entries.sort(key=lambda row: row[0])
                 return ["dict", [[key, item] for _, key, item in entries]]
-            tag = "set" if isinstance(value, set) else "frozenset"
+            tag = "set" if value_type is set else "frozenset"
             encoded = [_canonical(item, stack) for item in value]
             encoded.sort(
                 key=lambda item: json.dumps(
@@ -61,15 +63,16 @@ def _canonical(value: Any, stack: set[int]) -> object:
 
     raise CanonicalizationError(
         f"unsupported value type for canonical fingerprint: "
-        f"{type(value).__module__}.{type(value).__qualname__}"
+        f"{value_type.__module__}.{value_type.__qualname__}"
     )
 
 
 def canonical_bytes(value: object) -> bytes:
     """Return a deterministic, type-preserving representation.
 
-    Unsupported or cyclic values fail closed instead of falling back to repr(),
-    which can be ambiguous, process-specific, or state-incomplete.
+    Only exact supported built-in types are accepted. Unsupported or cyclic
+    values fail closed instead of falling back to repr(), which can be
+    ambiguous, process-specific, state-incomplete, or equality-confused.
     """
     canonical = _canonical(value, set())
     return json.dumps(
