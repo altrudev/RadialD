@@ -11,13 +11,16 @@ from typing import Callable, Generic, Hashable, TypeVar
 T = TypeVar("T")
 
 
-def _canonical_value(value: object) -> object:
+def _canonical_value(value: object, *, _seen: set[int] | None = None, _depth: int = 0) -> object:
     """Return a type-preserving deterministic representation.
 
-    RadialD uses fingerprints in execution lineage. Unsupported Python objects
-    fail closed rather than falling back to repr(), because repr may omit hidden
-    state or include process-specific addresses.
+    Unsupported objects, reference cycles, and excessive nesting fail closed.
+    This avoids repr()-based ambiguity and bounds pathological recursion.
     """
+    if _depth > 128:
+        raise TypeError("RadialD fingerprint nesting exceeds 128 levels")
+    if _seen is None:
+        _seen = set()
     if value is None:
         return ["none"]
     if isinstance(value, bool):
@@ -33,36 +36,80 @@ def _canonical_value(value: object) -> object:
     if isinstance(value, bytes):
         return ["bytes", value.hex()]
     if isinstance(value, list):
-        return ["list", [_canonical_value(item) for item in value]]
+        identity = id(value)
+        if identity in _seen:
+            raise TypeError("RadialD cannot fingerprint cyclic containers")
+        _seen.add(identity)
+        try:
+            return ["list", [_canonical_value(item, _seen=_seen, _depth=_depth + 1) for item in value]]
+        finally:
+            _seen.remove(identity)
     if isinstance(value, tuple):
-        return ["tuple", [_canonical_value(item) for item in value]]
+        identity = id(value)
+        if identity in _seen:
+            raise TypeError("RadialD cannot fingerprint cyclic containers")
+        _seen.add(identity)
+        try:
+            return ["tuple", [_canonical_value(item, _seen=_seen, _depth=_depth + 1) for item in value]]
+        finally:
+            _seen.remove(identity)
     if isinstance(value, dict):
-        items = [
-            [_canonical_value(key), _canonical_value(item)]
-            for key, item in value.items()
-        ]
-        items.sort(
-            key=lambda pair: json.dumps(
-                pair[0], sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        identity = id(value)
+        if identity in _seen:
+            raise TypeError("RadialD cannot fingerprint cyclic containers")
+        _seen.add(identity)
+        try:
+            items = [
+                [
+                    _canonical_value(key, _seen=_seen, _depth=_depth + 1),
+                    _canonical_value(item, _seen=_seen, _depth=_depth + 1),
+                ]
+                for key, item in value.items()
+            ]
+            items.sort(
+                key=lambda pair: json.dumps(
+                    pair[0], sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                )
             )
-        )
-        return ["dict", items]
+            return ["dict", items]
+        finally:
+            _seen.remove(identity)
     if isinstance(value, set):
-        items = [_canonical_value(item) for item in value]
-        items.sort(
-            key=lambda item: json.dumps(
-                item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        identity = id(value)
+        if identity in _seen:
+            raise TypeError("RadialD cannot fingerprint cyclic containers")
+        _seen.add(identity)
+        try:
+            items = [
+                _canonical_value(item, _seen=_seen, _depth=_depth + 1)
+                for item in value
+            ]
+            items.sort(
+                key=lambda item: json.dumps(
+                    item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                )
             )
-        )
-        return ["set", items]
+            return ["set", items]
+        finally:
+            _seen.remove(identity)
     if isinstance(value, frozenset):
-        items = [_canonical_value(item) for item in value]
-        items.sort(
-            key=lambda item: json.dumps(
-                item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        identity = id(value)
+        if identity in _seen:
+            raise TypeError("RadialD cannot fingerprint cyclic containers")
+        _seen.add(identity)
+        try:
+            items = [
+                _canonical_value(item, _seen=_seen, _depth=_depth + 1)
+                for item in value
+            ]
+            items.sort(
+                key=lambda item: json.dumps(
+                    item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                )
             )
-        )
-        return ["frozenset", items]
+            return ["frozenset", items]
+        finally:
+            _seen.remove(identity)
     raise TypeError(
         f"RadialD deterministic fingerprint requires a supported built-in value, got {type(value).__name__}"
     )
@@ -70,7 +117,7 @@ def _canonical_value(value: object) -> object:
 
 def stable_digest(value: object) -> str:
     encoded = json.dumps(
-        _canonical_value(value),
+        ["radiald-fingerprint-v2", _canonical_value(value)],
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -78,14 +125,14 @@ def stable_digest(value: object) -> str:
     return sha256(encoded).hexdigest()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class WorkResult(Generic[T]):
     value: T
     digest: str
     shared: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class WorkStats:
     logical_requests: int
     physical_executions: int
@@ -100,6 +147,16 @@ class WorkStats:
 
 
 class RadialExecutor:
+    __slots__ = (
+        "_lock",
+        "_inflight",
+        "_active_key_authorities",
+        "_logical_requests",
+        "_physical_executions",
+        "_shared_requests",
+        "_refused_cross_authority",
+    )
+
     """Coalesce identical deterministic work while preserving authority boundaries.
 
     Sharing is allowed only when both `authority` and `work_key` are equal.
@@ -109,7 +166,9 @@ class RadialExecutor:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._inflight: dict[tuple[Hashable, Hashable], Future[WorkResult[object]]] = {}
+        self._inflight: dict[
+            tuple[Hashable, Hashable, object], Future[WorkResult[object]]
+        ] = {}
         self._active_key_authorities: dict[Hashable, set[Hashable]] = {}
         self._logical_requests = 0
         self._physical_executions = 0
