@@ -66,6 +66,13 @@ class SecurityHardeningTests(unittest.TestCase):
     def test_dict_key_types_have_distinct_fingerprints(self):
         self.assertNotEqual(stable_digest({1: "x"}), stable_digest({"1": "x"}))
 
+    def test_builtin_subclass_fails_closed(self):
+        class Tenant(str):
+            pass
+
+        with self.assertRaises(CanonicalizationError):
+            stable_digest(Tenant("tenant-A"))
+
     def test_joiner_verifier_is_not_bypassed(self):
         engine = RadialExecutor()
         started = threading.Event()
@@ -93,6 +100,11 @@ class SecurityHardeningTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 second.result()
 
+        stats = engine.stats()
+        self.assertEqual(stats.join_attempts, 1)
+        self.assertEqual(stats.shared_requests, 0)
+        self.assertEqual(stats.rejected_shared_outputs, 1)
+
     def test_join_timeout_bounds_wait(self):
         engine = RadialExecutor()
         started = threading.Event()
@@ -119,6 +131,11 @@ class SecurityHardeningTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 second.result()
             first.result()
+
+        stats = engine.stats()
+        self.assertEqual(stats.join_attempts, 1)
+        self.assertEqual(stats.shared_requests, 0)
+        self.assertEqual(stats.timed_out_joins, 1)
 
     def test_unsupported_value_fails_closed(self):
         class Opaque:
