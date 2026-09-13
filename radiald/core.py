@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import threading
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
-from typing import Callable, Generic, Hashable, TypeVar
+from typing import Callable, Generic, TypeVar
 
 from .canonical import stable_digest, typed_identity
 
@@ -61,8 +61,8 @@ class RadialExecutor:
     def run(
         self,
         *,
-        authority: Hashable,
-        work_key: Hashable,
+        authority: object,
+        work_key: object,
         compute: Callable[[], T],
         verifier: Callable[[T], bool] | None = None,
         join_timeout: float | None = None,
