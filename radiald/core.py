@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import base64
 import json
 import math
 import threading
@@ -34,7 +35,7 @@ def _canonical_value(value: object, *, _seen: set[int] | None = None, _depth: in
     if isinstance(value, str):
         return ["str", value]
     if isinstance(value, bytes):
-        return ["bytes", value.hex()]
+        return ["bytes", base64.b64encode(value).decode("ascii")]
     if isinstance(value, list):
         identity = id(value)
         if identity in _seen:
