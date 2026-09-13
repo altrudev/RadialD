@@ -147,6 +147,13 @@ class WorkStats:
 
 
 class RadialExecutor:
+    """Coalesce identical deterministic work while preserving authority boundaries.
+
+    Sharing requires equal authority, work identity, and verifier contract.
+    Results are retained only while work is in flight; RadialD is deliberately
+    not a persistent cache.
+    """
+
     __slots__ = (
         "_lock",
         "_inflight",
@@ -156,13 +163,6 @@ class RadialExecutor:
         "_shared_requests",
         "_refused_cross_authority",
     )
-
-    """Coalesce identical deterministic work while preserving authority boundaries.
-
-    Sharing is allowed only when both `authority` and `work_key` are equal.
-    Results are shared only while work is in flight; RadialD is deliberately not
-    a persistent cache.
-    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
