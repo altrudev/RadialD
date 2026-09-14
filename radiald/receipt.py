@@ -4,7 +4,7 @@ import base64
 from collections.abc import Callable, Mapping
 
 from .canonical import stable_digest
-from .fabric import AssuranceFabricResult
+from .fabric import AssuranceFabricResult, _utc
 
 
 def make_assurance_receipt(
@@ -14,8 +14,9 @@ def make_assurance_receipt(
     issued_at: str,
     adapter_version: str = "assurance-fabric-v1",
 ) -> dict[str, object]:
-    if not receipt_id.strip():
-        raise ValueError("receipt_id required")
+    if not receipt_id.strip() or len(receipt_id) > 256:
+        raise ValueError("receipt_id required and must be <=256 chars")
+    _utc(issued_at)
     bounding = result.report.bounding_link
     payload: dict[str, object] = {
         "schema": "radiald-assurance-receipt/1",
@@ -70,7 +71,12 @@ def seal_assurance_receipt(
         raise ValueError("key_id and algorithm required")
     unsigned = dict(receipt)
     unsigned.pop("seal", None)
-    payload_digest = "sha256:" + stable_digest(unsigned)
+    seal_payload = {
+        "receipt_digest": unsigned["receipt_digest"],
+        "algorithm": algorithm,
+        "key_id": key_id,
+    }
+    payload_digest = "sha256:" + stable_digest(seal_payload)
     signature = signer(payload_digest.encode("ascii"))
     if not isinstance(signature, bytes) or not signature:
         raise ValueError("signer must return signature bytes")
