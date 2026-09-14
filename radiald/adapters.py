@@ -263,6 +263,7 @@ def renderdiff_signals(
     views = _mapping(r.get("views")) or {}
     assessment = _mapping(views.get("assurance")) or {}
     summary = _mapping(r.get("summary")) or {}
+    material_known = "material_divergence" in assessment or "material_divergence" in summary
     material = bool(assessment.get("material_divergence", summary.get("material_divergence", False)))
     complete = bool(assessment.get("complete", False))
     coverage = _mapping(assessment.get("coverage")) or {}
@@ -277,13 +278,13 @@ def renderdiff_signals(
     ]
     divergence_status = (
         WeakLinkStatus.CLOSED
-        if receipt_verified and not material
+        if receipt_verified and material_known and not material
         else WeakLinkStatus.UNRESOLVED
     )
     out.append(_signal(
         "representation_divergence", 0.95, 1.0, divergence_status,
         affects=("representation", "semantic", "execution"), depth=2,
-        evidence=f"material_divergence={material}",
+        evidence=(f"material_divergence={material}" if material_known else "material divergence evidence missing"),
     ))
 
     unavailable = sorted(k for k, value in coverage.items() if value == "unavailable")
