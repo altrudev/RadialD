@@ -40,6 +40,7 @@ def _sha256_text(value: str) -> bool:
 @dataclass(frozen=True)
 class EvidenceEnvelope:
     source: str
+    source_schema: str
     artifact_digest: str
     verifier_id: str
     trust_anchor_fingerprint: str
@@ -50,8 +51,10 @@ class EvidenceEnvelope:
     attestation_digest: str
 
     def __post_init__(self) -> None:
-        if not self.source.strip():
-            raise ValueError("source required")
+        if not self.source.strip() or len(self.source) > 128:
+            raise ValueError("source required and must be <=128 chars")
+        if not self.source_schema.strip() or len(self.source_schema) > 256:
+            raise ValueError("source_schema required and must be <=256 chars")
         if not _sha256_text(self.artifact_digest):
             raise ValueError("artifact_digest must be sha256")
         if not self.verifier_id.strip():
@@ -65,15 +68,18 @@ class EvidenceEnvelope:
             raise ValueError("unsupported disposition")
         if not _sha256_text(self.attestation_digest):
             raise ValueError("attestation_digest must be sha256")
+        if len(self.bindings) > 64:
+            raise ValueError("too many bindings")
         for key, value in self.bindings.items():
             if not isinstance(key, str) or not key.strip():
                 raise ValueError("binding names must be non-empty strings")
-            if not isinstance(value, str) or not value:
-                raise ValueError("binding values must be non-empty strings")
+            if not isinstance(value, str) or not value or len(value) > 4096:
+                raise ValueError("binding values must be non-empty strings <=4096 chars")
 
     def fingerprint(self) -> str:
         return stable_digest({
             "source": self.source,
+            "source_schema": self.source_schema,
             "artifact_digest": self.artifact_digest,
             "verifier_id": self.verifier_id,
             "trust_anchor_fingerprint": self.trust_anchor_fingerprint,
@@ -93,6 +99,8 @@ class EvidencePolicy:
     required_binding_fields: tuple[str, ...] = DEFAULT_BINDING_FIELDS
     max_preflight_age_seconds: int = 60
     require_preflight: bool = False
+    preflight_sources: tuple[str, ...] = ()
+    max_envelopes: int = 64
 
     def __post_init__(self) -> None:
         if not self.policy_id.strip():
@@ -101,6 +109,8 @@ class EvidencePolicy:
             raise ValueError("action_class required")
         if self.max_preflight_age_seconds < 0:
             raise ValueError("max_preflight_age_seconds must be non-negative")
+        if self.max_envelopes < 1 or self.max_envelopes > 1024:
+            raise ValueError("max_envelopes must be between 1 and 1024")
 
 
 @dataclass(frozen=True)
@@ -165,6 +175,17 @@ def policy_signals(
     items = tuple(envelopes)
     current = _utc(now)
     signals: list[WeakLinkSignal] = []
+    if len(items) > policy.max_envelopes:
+        signals.append(WeakLinkSignal(
+            name="evidence_budget",
+            severity=1.0,
+            confidence=1.0,
+            status=WeakLinkStatus.UNRESOLVED,
+            affects=("provenance", "execution"),
+            propagation_depth=4,
+            reversible=False,
+            evidence=f"envelope count {len(items)} exceeds {policy.max_envelopes}",
+        ))
     by_source: dict[str, list[EvidenceEnvelope]] = {}
 
     for envelope in items:
@@ -190,32 +211,46 @@ def policy_signals(
             ),
         ))
 
-    if policy.require_preflight:
-        preflight = [
-            envelope for envelope in items
+    fresh_sources = policy.preflight_sources
+    if policy.require_preflight and not fresh_sources:
+        fresh_sources = policy.required_sources
+    if policy.require_preflight and not fresh_sources:
+        signals.append(WeakLinkSignal(
+            name="evidence_freshness",
+            severity=1.0,
+            confidence=1.0,
+            status=WeakLinkStatus.UNRESOLVED,
+            affects=("authority", "state", "execution"),
+            propagation_depth=3,
+            reversible=False,
+            evidence="preflight required but no source set is declared",
+        ))
+    for source in fresh_sources:
+        candidates = [
+            envelope for envelope in by_source.get(source, [])
             if envelope.disposition == "VERIFIED"
             and verifier(envelope)
             and envelope.freshness_scope == "preflight"
         ]
-        if not preflight:
+        if not candidates:
             status = WeakLinkStatus.UNRESOLVED
             evidence = "trusted preflight evidence missing"
         else:
             ages = [
                 (current - _utc(envelope.verified_at)).total_seconds()
-                for envelope in preflight
+                for envelope in candidates
             ]
             if any(age < 0 for age in ages):
                 status = WeakLinkStatus.UNRESOLVED
                 evidence = "preflight evidence timestamp is in the future"
-            elif max(ages) > policy.max_preflight_age_seconds:
+            elif min(ages) > policy.max_preflight_age_seconds:
                 status = WeakLinkStatus.UNRESOLVED
                 evidence = "preflight evidence exceeds maximum age"
             else:
                 status = WeakLinkStatus.CLOSED
                 evidence = "preflight evidence within policy age"
         signals.append(WeakLinkSignal(
-            name="evidence_freshness",
+            name=f"evidence_freshness:{source}",
             severity=1.0,
             confidence=1.0,
             status=status,
@@ -311,6 +346,8 @@ def analyze_assurance_fabric(
         "required_binding_fields": policy.required_binding_fields,
         "max_preflight_age_seconds": policy.max_preflight_age_seconds,
         "require_preflight": policy.require_preflight,
+        "preflight_sources": policy.preflight_sources,
+        "max_envelopes": policy.max_envelopes,
     })
     return AssuranceFabricResult(
         report=report,
