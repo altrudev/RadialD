@@ -22,6 +22,7 @@ def d(ch):
 def env(source, action, *, scope="preflight", resource="r1"):
     return EvidenceEnvelope(
         source=source,
+        source_schema=source + "/1",
         artifact_digest=d("a"),
         verifier_id="verifier:" + source,
         trust_anchor_fingerprint=d("b"),
@@ -133,6 +134,7 @@ class FabricTests(unittest.TestCase):
                 action_class="test",
                 required_binding_fields=("action_digest",),
                 require_preflight=True,
+                preflight_sources=("receipt",),
                 max_preflight_age_seconds=10,
             ),
             now="2026-09-14T06:01:00Z",
@@ -140,7 +142,35 @@ class FabricTests(unittest.TestCase):
         )
         names = {signal.name: signal for signal in result.report.links}
         self.assertEqual(
-            names["evidence_freshness"].status,
+            names["evidence_freshness:receipt"].status,
+            WeakLinkStatus.UNRESOLVED,
+        )
+
+
+    def test_fresh_one_source_cannot_freshen_historical_other_source(self):
+        historical = env("dsr", d("1"), scope="historical")
+        result = analyze_assurance_fabric(
+            envelopes=[env("receipt", d("1")), historical],
+            producer_signals=(),
+            policy=EvidencePolicy(
+                policy_id="p",
+                action_class="test",
+                required_sources=("receipt", "dsr"),
+                required_binding_fields=("action_digest",),
+                require_preflight=True,
+                preflight_sources=("receipt", "dsr"),
+                max_preflight_age_seconds=120,
+            ),
+            now="2026-09-14T06:00:30Z",
+            verifier=ALLOW_ALL,
+        )
+        names = {signal.name: signal for signal in result.report.links}
+        self.assertEqual(
+            names["evidence_freshness:receipt"].status,
+            WeakLinkStatus.CLOSED,
+        )
+        self.assertEqual(
+            names["evidence_freshness:dsr"].status,
             WeakLinkStatus.UNRESOLVED,
         )
 
@@ -175,7 +205,7 @@ class FabricTests(unittest.TestCase):
         )
         self.assertTrue(verify_assurance_receipt(receipt))
         tampered = dict(receipt)
-        tampered["system_assurance"] = 1.0
+        tampered["receipt_id"] = "r2"
         self.assertFalse(verify_assurance_receipt(tampered))
         sealed = seal_assurance_receipt(
             receipt,
