@@ -228,7 +228,7 @@ class FabricTests(unittest.TestCase):
         bad_seal["seal"]["signature_b64"] = "AAAA"
         self.assertFalse(verify_assurance_seal(
             bad_seal,
-            verifier=lambda payload, signature, key_id, algorithm: True,
+            verifier=lambda payload, signature, key_id, algorithm: (key_id == "external:test" and algorithm == "test-only" and signature == b"sig:" + payload[:8]),
         ))
 
 
