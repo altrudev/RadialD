@@ -133,6 +133,7 @@ class FabricTests(unittest.TestCase):
             policy=EvidencePolicy(
                 policy_id="p",
                 action_class="test",
+                required_sources=("receipt",),
                 required_binding_fields=("action_digest",),
                 require_preflight=True,
                 preflight_sources=("receipt",),
