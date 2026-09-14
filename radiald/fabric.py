@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hmac
 from itertools import islice
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping
@@ -90,6 +91,62 @@ class EvidenceEnvelope:
                 raise ValueError("binding values must be non-empty strings <=4096 chars")
         object.__setattr__(self, "bindings", MappingProxyType(copied))
 
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        source: str,
+        source_schema: str,
+        artifact_digest: str,
+        verifier_id: str,
+        trust_anchor_fingerprint: str,
+        verified_at: str,
+        freshness_scope: str,
+        disposition: str,
+        bindings: Mapping[str, str],
+    ) -> "EvidenceEnvelope":
+        payload = {
+            "source": source,
+            "source_schema": source_schema,
+            "artifact_digest": artifact_digest,
+            "verifier_id": verifier_id,
+            "trust_anchor_fingerprint": trust_anchor_fingerprint,
+            "verified_at": verified_at,
+            "freshness_scope": freshness_scope,
+            "disposition": disposition,
+            "bindings": dict(bindings),
+        }
+        return cls(
+            source=source,
+            source_schema=source_schema,
+            artifact_digest=artifact_digest,
+            verifier_id=verifier_id,
+            trust_anchor_fingerprint=trust_anchor_fingerprint,
+            verified_at=verified_at,
+            freshness_scope=freshness_scope,
+            disposition=disposition,
+            bindings=dict(bindings),
+            attestation_digest="sha256:" + stable_digest(payload),
+        )
+
+    def attestation_payload(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "source_schema": self.source_schema,
+            "artifact_digest": self.artifact_digest,
+            "verifier_id": self.verifier_id,
+            "trust_anchor_fingerprint": self.trust_anchor_fingerprint,
+            "verified_at": self.verified_at,
+            "freshness_scope": self.freshness_scope,
+            "disposition": self.disposition,
+            "bindings": dict(self.bindings),
+        }
+
+    def attestation_integrity_ok(self) -> bool:
+        expected = "sha256:" + stable_digest(self.attestation_payload())
+        return hmac.compare_digest(self.attestation_digest, expected)
+
     def fingerprint(self) -> str:
         return stable_digest({
             "source": self.source,
@@ -172,7 +229,7 @@ def _evaluate_trust(
         fingerprint = envelope.fingerprint()
         if fingerprint in trust:
             continue
-        if envelope.disposition != "VERIFIED":
+        if envelope.disposition != "VERIFIED" or not envelope.attestation_integrity_ok():
             trust[fingerprint] = False
             continue
         try:

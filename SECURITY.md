@@ -116,3 +116,14 @@ agree where the policy requires them.
 Assurance receipt sealing and seal verification are delegated to external
 signer/verifier functions. RadialD does not generate trust anchors or infer that
 a signature is trustworthy merely because it is syntactically valid.
+
+
+## Attestation self-binding
+
+v0.4.1 recomputes the attestation digest from the envelope's source schema,
+artifact digest, verifier identity, trust-anchor fingerprint, verification time,
+freshness scope, disposition, and immutable bindings.
+
+An envelope whose attestation digest does not match those fields is never
+eligible for trust, even if the external verifier callback returns true.
+Use EvidenceEnvelope.create() to construct a self-bound envelope.

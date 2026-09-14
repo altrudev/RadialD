@@ -21,7 +21,7 @@ def d(ch):
 
 
 def env(source, action, *, scope="preflight", resource="r1"):
-    return EvidenceEnvelope(
+    return EvidenceEnvelope.create(
         source=source,
         source_schema=source + "/1",
         artifact_digest=d("a"),
@@ -35,7 +35,6 @@ def env(source, action, *, scope="preflight", resource="r1"):
             "resource_id": resource,
             "policy_digest": d("c"),
         },
-        attestation_digest=d("d"),
     )
 
 
@@ -148,7 +147,6 @@ class FabricTests(unittest.TestCase):
             WeakLinkStatus.UNRESOLVED,
         )
 
-
     def test_fresh_one_source_cannot_freshen_historical_other_source(self):
         historical = env("dsr", d("1"), scope="historical")
         result = analyze_assurance_fabric(
@@ -229,7 +227,11 @@ class FabricTests(unittest.TestCase):
         bad_seal["seal"]["signature_b64"] = "AAAA"
         self.assertFalse(verify_assurance_seal(
             bad_seal,
-            verifier=lambda payload, signature, key_id, algorithm: (key_id == "external:test" and algorithm == "test-only" and signature == b"sig:" + payload[:8]),
+            verifier=lambda payload, signature, key_id, algorithm: (
+                key_id == "external:test"
+                and algorithm == "test-only"
+                and signature == b"sig:" + payload[:8]
+            ),
         ))
 
 

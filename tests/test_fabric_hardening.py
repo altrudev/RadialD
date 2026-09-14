@@ -9,7 +9,7 @@ def d(ch):
 
 
 def env():
-    return EvidenceEnvelope(
+    return EvidenceEnvelope.create(
         source="receipt",
         source_schema="receipt/1",
         artifact_digest=d("a"),
@@ -19,14 +19,44 @@ def env():
         freshness_scope="preflight",
         disposition="VERIFIED",
         bindings={"action_digest": d("1")},
-        attestation_digest=d("d"),
     )
 
 
 class FabricTrustHardeningTests(unittest.TestCase):
+    def test_arbitrary_attestation_digest_cannot_be_trusted(self):
+        bad = EvidenceEnvelope(
+            source="receipt",
+            source_schema="receipt/1",
+            artifact_digest=d("a"),
+            verifier_id="verifier:receipt",
+            trust_anchor_fingerprint=d("b"),
+            verified_at="2026-09-14T06:00:00Z",
+            freshness_scope="preflight",
+            disposition="VERIFIED",
+            bindings={"action_digest": d("1")},
+            attestation_digest=d("d"),
+        )
+        result = analyze_assurance_fabric(
+            envelopes=[bad],
+            producer_signals=(),
+            policy=EvidencePolicy(
+                policy_id="p",
+                action_class="test",
+                required_sources=("receipt",),
+                required_binding_fields=("action_digest",),
+            ),
+            now="2026-09-14T06:00:30Z",
+            verifier=lambda envelope: True,
+        )
+        by_name = {signal.name: signal for signal in result.report.links}
+        self.assertEqual(
+            by_name["required_evidence:receipt"].status,
+            WeakLinkStatus.UNRESOLVED,
+        )
+
     def test_bindings_are_immutable_snapshot(self):
         bindings = {"action_digest": d("1")}
-        envelope = EvidenceEnvelope(
+        envelope = EvidenceEnvelope.create(
             source="receipt",
             source_schema="receipt/1",
             artifact_digest=d("a"),
@@ -36,7 +66,6 @@ class FabricTrustHardeningTests(unittest.TestCase):
             freshness_scope="preflight",
             disposition="VERIFIED",
             bindings=bindings,
-            attestation_digest=d("d"),
         )
         bindings["action_digest"] = d("2")
         self.assertEqual(envelope.bindings["action_digest"], d("1"))

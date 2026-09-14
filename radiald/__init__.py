@@ -71,4 +71,4 @@ __all__ = [
     "verify_assurance_receipt",
     "verify_assurance_seal",
 ]
-__version__ = "0.4.0"
+__version__ = "0.4.1"

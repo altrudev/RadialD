@@ -11,7 +11,7 @@ def d(ch):
 
 class SealBindingTests(unittest.TestCase):
     def test_key_metadata_substitution_is_rejected(self):
-        envelope = EvidenceEnvelope(
+        envelope = EvidenceEnvelope.create(
             source="receipt",
             source_schema="receipt/1",
             artifact_digest=d("a"),
@@ -21,7 +21,6 @@ class SealBindingTests(unittest.TestCase):
             freshness_scope="preflight",
             disposition="VERIFIED",
             bindings={"action_digest": d("1")},
-            attestation_digest=d("d"),
         )
         result = analyze_assurance_fabric(
             envelopes=[envelope],
