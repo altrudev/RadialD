@@ -112,3 +112,10 @@ The v0.4 assurance suite includes mixed-action composition rejection,
 self-declared trust rejection, missing-source failure, per-source stale evidence,
 contradiction creation, RenderDiff missing-evidence handling, receipt tamper
 detection, and external seal verification.
+
+
+## G18 — Attestation self-binding
+
+An evidence envelope's attestation digest must match the envelope fields it
+claims to attest. A mismatched digest cannot be trusted even when an external
+verifier callback returns true.
