@@ -69,3 +69,46 @@ The v0.3 suite covers the original v0.2 graph and concurrency gates plus:
 - weak-link bounding, closure, and containment behavior.
 
 The implementation remains bounded to declared deterministic work and explicit assurance signals.
+
+
+## G12 — External evidence trust
+
+An evidence envelope must not become trusted solely because its own disposition
+claims VERIFIED. A caller-supplied external verifier must accept the attestation
+before the envelope can close required evidence or participate in trusted
+cross-artifact binding.
+
+## G13 — Cross-artifact coherence
+
+Individually valid artifacts must not compose into one safe assurance result
+when required action, resource, policy, revision, state, or execution bindings
+disagree.
+
+## G14 — Per-source freshness
+
+A fresh artifact from one producer must not make another producer's stale or
+historical evidence current. Required preflight freshness is evaluated per
+declared source.
+
+## G15 — Missing evidence fails closed
+
+Missing mandatory producers, missing required bindings, future-dated evidence,
+and evidence outside the configured freshness window remain UNRESOLVED.
+
+## G16 — Contradictions remain visible
+
+Conflicting CLOSED and non-CLOSED states for the same assurance signal create a
+first-class evidence_contradiction weak link.
+
+## G17 — Assurance receipt integrity
+
+The assurance receipt binds the evidence fingerprints, policy digest, binding
+result, bounding link, autonomy ceiling, and report digest. Signing and
+signature verification remain external trust operations.
+
+## v0.4 validation targets
+
+The v0.4 assurance suite includes mixed-action composition rejection,
+self-declared trust rejection, missing-source failure, per-source stale evidence,
+contradiction creation, RenderDiff missing-evidence handling, receipt tamper
+detection, and external seal verification.
