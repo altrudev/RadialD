@@ -12,6 +12,7 @@ from radiald.receipt import (
     seal_assurance_receipt,
     verify_assurance_receipt,
 )
+from radiald.seal import verify_assurance_seal
 from radiald.weaklink import SafeAutonomy, WeakLinkSignal, WeakLinkStatus
 
 
@@ -214,6 +215,21 @@ class FabricTests(unittest.TestCase):
             algorithm="test-only",
         )
         self.assertIn("seal", sealed)
+        self.assertTrue(verify_assurance_seal(
+            sealed,
+            verifier=lambda payload, signature, key_id, algorithm: (
+                key_id == "external:test"
+                and algorithm == "test-only"
+                and signature == b"sig:" + payload[:8]
+            ),
+        ))
+        bad_seal = dict(sealed)
+        bad_seal["seal"] = dict(sealed["seal"])
+        bad_seal["seal"]["signature_b64"] = "AAAA"
+        self.assertFalse(verify_assurance_seal(
+            bad_seal,
+            verifier=lambda payload, signature, key_id, algorithm: True,
+        ))
 
 
 if __name__ == "__main__":
