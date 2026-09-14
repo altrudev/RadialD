@@ -28,7 +28,15 @@ def verify_assurance_seal(
 
     unsigned = dict(receipt)
     unsigned.pop("seal", None)
-    expected = "sha256:" + stable_digest(unsigned)
+    receipt_digest = unsigned.get("receipt_digest")
+    if not isinstance(receipt_digest, str):
+        return False
+    seal_payload = {
+        "receipt_digest": receipt_digest,
+        "algorithm": algorithm,
+        "key_id": key_id,
+    }
+    expected = "sha256:" + stable_digest(seal_payload)
     if payload_digest != expected:
         return False
 
