@@ -96,3 +96,23 @@ fresh-state validation.
 
 Report suspected security issues privately to the repository owner rather than
 publishing exploit details in a public issue.
+
+
+## Assurance-fabric trust boundary
+
+v0.4 evidence envelopes are metadata containers, not trust roots. A self-declared
+VERIFIED disposition cannot close evidence. Assurance-fabric analysis requires
+an externally supplied verifier callback that validates the envelope's
+attestation against the application's own trust anchors.
+
+Policies may require producer presence, specific cross-artifact bindings,
+per-source preflight freshness, and evidence-count budgets. Missing, stale,
+future-dated, over-budget, or conflicting evidence fails closed.
+
+Trusted artifacts from different actions must not compose: required action,
+resource, policy, revision, predecessor/successor, and execution bindings must
+agree where the policy requires them.
+
+Assurance receipt sealing and seal verification are delegated to external
+signer/verifier functions. RadialD does not generate trust anchors or infer that
+a signature is trustworthy merely because it is syntactically valid.
