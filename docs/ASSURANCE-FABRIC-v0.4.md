@@ -76,3 +76,14 @@ evidence, or make stale evidence current.
 
 The assurance score remains a policy result, not a mathematical proof of whole
 system safety.
+
+
+## v0.4.1 attestation integrity
+
+EvidenceEnvelope.create() computes an attestation digest over the envelope's
+attested fields. During trust evaluation RadialD recomputes that digest before
+calling the external verifier.
+
+A syntactically valid envelope with an arbitrary or stale attestation digest
+therefore remains untrusted even if a permissive verifier callback would
+otherwise accept it.
