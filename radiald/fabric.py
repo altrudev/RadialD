@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from .canonical import stable_digest
 from .weaklink import WeakLinkAnalyzer, WeakLinkReport, WeakLinkSignal, WeakLinkStatus
@@ -71,10 +71,6 @@ class EvidenceEnvelope:
             if not isinstance(value, str) or not value:
                 raise ValueError("binding values must be non-empty strings")
 
-    @property
-    def trusted(self) -> bool:
-        return self.disposition == "VERIFIED"
-
     def fingerprint(self) -> str:
         return stable_digest({
             "source": self.source,
@@ -126,9 +122,14 @@ class AssuranceFabricResult:
 def bind_evidence(
     envelopes: Iterable[EvidenceEnvelope],
     *,
+    verifier: Callable[[EvidenceEnvelope], bool],
     required_fields: Iterable[str] = DEFAULT_BINDING_FIELDS,
 ) -> BindingReport:
     items = tuple(envelopes)
+    trusted = tuple(
+        envelope for envelope in items
+        if envelope.disposition == "VERIFIED" and verifier(envelope)
+    )
     resolved: dict[str, str] = {}
     conflicts: dict[str, tuple[str, ...]] = {}
     missing: list[str] = []
@@ -136,8 +137,8 @@ def bind_evidence(
     for field in tuple(required_fields):
         values = sorted({
             envelope.bindings[field]
-            for envelope in items
-            if envelope.trusted and field in envelope.bindings
+            for envelope in trusted
+            if field in envelope.bindings
         })
         if not values:
             missing.append(field)
@@ -159,6 +160,7 @@ def policy_signals(
     policy: EvidencePolicy,
     *,
     now: str,
+    verifier: Callable[[EvidenceEnvelope], bool],
 ) -> tuple[WeakLinkSignal, ...]:
     items = tuple(envelopes)
     current = _utc(now)
@@ -170,7 +172,10 @@ def policy_signals(
 
     for source in policy.required_sources:
         matches = by_source.get(source, [])
-        closed = any(envelope.trusted for envelope in matches)
+        closed = any(
+            envelope.disposition == "VERIFIED" and verifier(envelope)
+            for envelope in matches
+        )
         signals.append(WeakLinkSignal(
             name=f"required_evidence:{source}",
             severity=1.0,
@@ -188,7 +193,9 @@ def policy_signals(
     if policy.require_preflight:
         preflight = [
             envelope for envelope in items
-            if envelope.trusted and envelope.freshness_scope == "preflight"
+            if envelope.disposition == "VERIFIED"
+            and verifier(envelope)
+            and envelope.freshness_scope == "preflight"
         ]
         if not preflight:
             status = WeakLinkStatus.UNRESOLVED
@@ -218,7 +225,11 @@ def policy_signals(
             evidence=evidence,
         ))
 
-    binding = bind_evidence(items, required_fields=policy.required_binding_fields)
+    binding = bind_evidence(
+        items,
+        verifier=verifier,
+        required_fields=policy.required_binding_fields,
+    )
     if binding.conflicts:
         binding_status = WeakLinkStatus.UNRESOLVED
         binding_evidence = "conflicts=" + ",".join(sorted(binding.conflicts))
@@ -274,16 +285,23 @@ def analyze_assurance_fabric(
     producer_signals: Iterable[WeakLinkSignal],
     policy: EvidencePolicy,
     now: str,
+    verifier: Callable[[EvidenceEnvelope], bool],
     analyzer: WeakLinkAnalyzer | None = None,
 ) -> AssuranceFabricResult:
     envelope_items = tuple(envelopes)
     producer_items = tuple(producer_signals)
-    policy_items = policy_signals(envelope_items, policy, now=now)
+    policy_items = policy_signals(
+        envelope_items,
+        policy,
+        now=now,
+        verifier=verifier,
+    )
     contradiction_items = contradiction_signals(producer_items + policy_items)
     all_signals = producer_items + policy_items + contradiction_items
     report = (analyzer or WeakLinkAnalyzer()).analyze(all_signals)
     binding = bind_evidence(
         envelope_items,
+        verifier=verifier,
         required_fields=policy.required_binding_fields,
     )
     policy_digest = stable_digest({
