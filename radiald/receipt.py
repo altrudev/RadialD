@@ -7,6 +7,28 @@ from .canonical import stable_digest
 from .fabric import AssuranceFabricResult, _utc
 
 
+def _json_stable(value: object) -> object:
+    """Map a receipt to the form it has after any JSON round-trip.
+
+    JSON has one number type, so JavaScript (and most other JSON libraries)
+    write 1.0 as 1, and tuples come back as lists. Receipts are meant to
+    travel through DDC Platform and browsers, so they are digested in this
+    JSON-stable form: integral floats become ints and tuples become lists.
+    Non-integral floats are kept exactly (float.hex) by canonical_bytes.
+    """
+    if type(value) is float and value.is_integer():
+        return int(value)
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _json_stable(item) for key, item in value.items()}
+    return value
+
+
+def _receipt_digest(unsigned: Mapping[str, object]) -> str:
+    return "sha256:" + stable_digest(_json_stable(dict(unsigned)))
+
+
 def make_assurance_receipt(
     result: AssuranceFabricResult,
     *,
@@ -42,7 +64,7 @@ def make_assurance_receipt(
         },
         "signal_count": len(result.report.links),
     }
-    payload["receipt_digest"] = "sha256:" + stable_digest(payload)
+    payload["receipt_digest"] = _receipt_digest(payload)
     return payload
 
 
@@ -55,6 +77,10 @@ def verify_assurance_receipt(receipt: Mapping[str, object]) -> bool:
     unsigned = dict(receipt)
     unsigned.pop("seal", None)
     unsigned.pop("receipt_digest", None)
+    if expected == _receipt_digest(unsigned):
+        return True
+    # Receipts issued before the JSON-stable digest (radiald <= 0.4) hashed
+    # the raw Python values. They still verify while carried unchanged.
     return expected == "sha256:" + stable_digest(unsigned)
 
 

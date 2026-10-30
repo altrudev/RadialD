@@ -237,3 +237,38 @@ class FabricTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReceiptJsonStabilityTests(unittest.TestCase):
+    """Audit M5: receipts must survive a JavaScript-style JSON round-trip."""
+
+    def _receipt(self):
+        import json
+        from radiald.receipt import _json_stable
+        receipt = {
+            "schema": "radiald-assurance-receipt/1",
+            "receipt_id": "r-1",
+            "system_assurance": 1.0,
+            "bounding_link": {"confidence": 0.0, "residual_risk": 0.25},
+            "evidence_fingerprints": ("a", "b"),
+        }
+        from radiald.receipt import _receipt_digest
+        receipt["receipt_digest"] = _receipt_digest(receipt)
+        return receipt, json, _json_stable
+
+    def test_verifies_after_js_style_round_trip(self):
+        receipt, json, _json_stable = self._receipt()
+        self.assertTrue(verify_assurance_receipt(receipt))
+        js_text = json.dumps(_json_stable(receipt))  # JS writes 1.0 as 1
+        self.assertIn('"system_assurance": 1,', js_text)
+        self.assertTrue(verify_assurance_receipt(json.loads(js_text)))
+        self.assertTrue(verify_assurance_receipt(json.loads(json.dumps(receipt))))
+
+    def test_tampered_value_still_fails(self):
+        receipt, json, _ = self._receipt()
+        tampered = json.loads(json.dumps(receipt))
+        tampered["bounding_link"]["residual_risk"] = 0.2500001
+        self.assertFalse(verify_assurance_receipt(tampered))
+        tampered = json.loads(json.dumps(receipt))
+        tampered["system_assurance"] = 2
+        self.assertFalse(verify_assurance_receipt(tampered))
